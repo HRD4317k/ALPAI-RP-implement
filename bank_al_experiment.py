@@ -54,18 +54,18 @@ CSV_PATH = os.path.join(
 # Active Learning configuration
 # ------------------------------------------------
 
-INITIAL_LABELS = 100
+INITIAL_LABELS = 50
 
-BATCH_SIZE = 100
+BATCH_SIZE = 50
 
-N_QUERIES = 20
+N_QUERIES = 10
 
-# Multiple seeds are essential for a research experiment.
-SEEDS = [42, 52, 62, 72, 82]
+# Single seed for faster execution.
+SEEDS = [42]
 
 ALPHA = 0.50
-CANDIDATE_MULTIPLIER = 10
-MMD_SIGMA = None
+CANDIDATE_MULTIPLIER = 5
+MMD_SIGMA = 1.0
 
 
 # ================================================================
@@ -291,19 +291,20 @@ def compute_mmd(X, Y, sigma=None):
     if len(X) == 0 or len(Y) == 0:
         return 0.0
 
+    sample_size = min(len(X), 100)
+    rng = np.random.default_rng(42)
+    X_sample = X[rng.choice(len(X), size=sample_size, replace=False)] if len(X) > sample_size else X
+    
+    y_sample_size = min(len(Y), 100)
+    Y_sample = Y[rng.choice(len(Y), size=y_sample_size, replace=False)] if len(Y) > y_sample_size else Y
+    
     if sigma is None:
-        # Avoid huge matrix ops by sampling
-        sample_size = min(len(X), 500)
-        rng = np.random.default_rng(42)
-        X_sample = X[rng.choice(len(X), size=sample_size, replace=False)] if len(X) > sample_size else X
-        Y_sample = Y[rng.choice(len(Y), size=sample_size, replace=False)] if len(Y) > sample_size else Y
-        
         combined = np.vstack([X_sample, Y_sample])
         sigma = estimate_sigma(combined)
 
-    K_xx = rbf_kernel(X, X, sigma)
-    K_yy = rbf_kernel(Y, Y, sigma)
-    K_xy = rbf_kernel(X, Y, sigma)
+    K_xx = rbf_kernel(X_sample, X_sample, sigma)
+    K_yy = rbf_kernel(Y_sample, Y_sample, sigma)
+    K_xy = rbf_kernel(X_sample, Y_sample, sigma)
 
     mmd_squared = np.mean(K_xx) + np.mean(K_yy) - 2.0 * np.mean(K_xy)
     mmd_squared = max(mmd_squared, 0.0)
@@ -344,8 +345,8 @@ def query_representative(X_reference, X_pool, X_current_labeled, batch_size):
         best_mmd = np.inf
 
         # Subsample for speed if pool is huge
-        if len(remaining) > 500:
-            sample_candidates = np.random.choice(remaining, 500, replace=False)
+        if len(remaining) > 100:
+            sample_candidates = np.random.choice(remaining, 100, replace=False)
         else:
             sample_candidates = remaining
 
@@ -377,7 +378,7 @@ def query_ipm_hybrid(model, X_reference, X_pool, X_current_labeled, batch_size, 
     uncertainty = entropy_uncertainty(model, X_pool)
     uncertainty_normalized = normalize(uncertainty)
 
-    candidate_count = min(len(X_pool), batch_size * CANDIDATE_MULTIPLIER)
+    candidate_count = min(len(X_pool), batch_size * 2)
     candidate_indices = np.argsort(uncertainty_normalized)[-candidate_count:]
 
     current_distribution = X_current_labeled.copy()
